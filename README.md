@@ -46,7 +46,8 @@ Przed aktualizacją tworzony jest backup w podkatalogu `backups\` obok pliku baz
 
 ## Znane ograniczenia
 
-- **Przywracanie backupu po błędzie nie działa poprawnie** — mechanizm restore (`FbRestore`) jest zaimplementowany, jednak w przypadku błędu podczas `update-db` baza nie jest automatycznie przywracana do stanu sprzed aktualizacji. Backup jest tworzony i przechowywany w folderze `backups\`, ale ręczne przywrócenie wymaga użycia narzędzia `gbak` lub Firebird Manager.
+- **Usuwanie bazy po błędzie tworzenia nie zostało sprawdzone** — w przypadku błędu podczas `build-db` aplikacja próbuje usunąć niekompletny plik `database.fdb`, jednak ten mechanizm nie był testowany.
+- **Przywracanie backupu po błędzie nie działa poprawnie** — w przypadku niepowodzenia `update-db` baza nie jest automatycznie przywracana do stanu sprzed aktualizacji. Backup jest tworzony i przechowywany w folderze `backups\`, jednak mechanizm automatycznego restore nie działa poprawnie — ręczne przywrócenie wymaga użycia narzędzia `gbak` lub Firebird Manager.
 - **Częściowa obsługa constraints** — domeny obsługują `NOT NULL` oraz `CHECK`, natomiast `update-db` nie obsługuje dodawania ani modyfikacji kluczy obcych i unikalnych indeksów w tabelach.
 - **Aktualizacja kolumn** — przed dodaniem kolumny sprawdzane jest czy tabela już istnieje w bazie; jeśli tak, dodawane są tylko brakujące kolumny.
 - DDL w Firebird nie jest transakcyjne — rollback nie cofa zmian schematu, jedynym zabezpieczeniem jest backup.

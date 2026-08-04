@@ -30,8 +30,8 @@ namespace DbMetaTool
                     Charset = "UTF8"
                 }.ToString();
 
-                BuildDatabase(@"C:\db\fb5", @"C:\out");
-                // ExportScripts(connStr, @"C:\out");
+                // BuildDatabase(@"C:\db\fb5", @"C:\out");
+                ExportScripts(connStr, @"C:\out");
                 return 1;
             }
 
@@ -110,9 +110,7 @@ namespace DbMetaTool
             if (domainsFile == null || tablesFile == null || proceduresFile == null)
                 throw new InvalidOperationException("Katalog ze skryptami musi zawierać pliki: domains, tables oraz procedures.");
 
-            var databasePath = Path.HasExtension(databaseDirectory)
-                ? databaseDirectory
-                : Path.Combine(databaseDirectory, "database3.fdb");
+            var databasePath = Path.Combine(databaseDirectory, "database.fdb");
 
             if (File.Exists(databasePath))
                 throw new InvalidOperationException($"Baza danych już istnieje pod ścieżką: {databasePath}");

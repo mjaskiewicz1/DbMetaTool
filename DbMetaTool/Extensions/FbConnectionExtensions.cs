@@ -298,9 +298,7 @@ public static class FbConnectionExtensions
     public static void Restore(this FbConnection connection, string backupPath)
     {
         FbConnection.ClearAllPools();
-
-        var connBuilder = new FbConnectionStringBuilder(connection.ConnectionString);
-
+        
         var restore = new FbRestore
         {
             ConnectionString = connection.ConnectionString,

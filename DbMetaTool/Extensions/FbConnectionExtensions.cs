@@ -316,7 +316,7 @@ public static class FbConnectionExtensions
 
         foreach (var statement in script.Results)
         {
-            var parts = statement.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3) continue;
 
             var stmtKeyword = string.Join(" ", parts[..2]);

@@ -46,16 +46,8 @@ public static class FbConnectionExtensions
     private const string Procedures =
         """
         SELECT
-            RDB$PROCEDURE_NAME,
-            RDB$PROCEDURE_SOURCE
-        FROM RDB$PROCEDURES
-        WHERE RDB$SYSTEM_FLAG = 0
-        """;
-
-    private const string ProcedureParameters =
-        """
-        SELECT
-            pp.RDB$PROCEDURE_NAME,
+            p.RDB$PROCEDURE_NAME,
+            p.RDB$PROCEDURE_SOURCE,
             pp.RDB$PARAMETER_NAME,
             pp.RDB$PARAMETER_TYPE,
             f.RDB$FIELD_TYPE,
@@ -63,14 +55,13 @@ public static class FbConnectionExtensions
             f.RDB$FIELD_SUB_TYPE,
             f.RDB$FIELD_PRECISION,
             f.RDB$FIELD_SCALE
-        FROM RDB$PROCEDURE_PARAMETERS pp
-        JOIN RDB$FIELDS f
+        FROM RDB$PROCEDURES p
+        LEFT JOIN RDB$PROCEDURE_PARAMETERS pp
+            ON pp.RDB$PROCEDURE_NAME = p.RDB$PROCEDURE_NAME
+        LEFT JOIN RDB$FIELDS f
             ON f.RDB$FIELD_NAME = pp.RDB$FIELD_SOURCE
-        WHERE pp.RDB$SYSTEM_FLAG = 0
-        ORDER BY
-            pp.RDB$PROCEDURE_NAME,
-            pp.RDB$PARAMETER_TYPE,
-            pp.RDB$PARAMETER_NUMBER
+        WHERE p.RDB$SYSTEM_FLAG = 0
+        ORDER BY p.RDB$PROCEDURE_NAME, pp.RDB$PARAMETER_TYPE, pp.RDB$PARAMETER_NUMBER
         """;
 
     #region Read
@@ -173,32 +164,52 @@ public static class FbConnectionExtensions
     public static string ExportProcedures(this FbConnection connection)
     {
         var sql = new StringBuilder();
-        var procedures = new List<(string Name, string? Source)>();
+        var procedures = new Dictionary<string, (string? Source, List<string> Inputs, List<string> Outputs)>();
+        var seen = new List<string>();
 
         using (var command = new FbCommand(Procedures, connection))
         using (var reader = command.ExecuteReader())
         {
             while (reader.Read())
             {
-                var name = reader.GetString(0).Trim(); // RDB$PROCEDURE_NAME
-                var source = reader.IsDBNull(1) ? null : reader.GetString(1); // RDB$PROCEDURE_SOURCE
-                procedures.Add((name, source));
+                var name = reader.GetString(0).Trim();
+                var source = reader.IsDBNull(1) ? null : reader.GetString(1);
+
+                if (!procedures.TryGetValue(name, out var entry))
+                {
+                    entry = (source, [], []);
+                    procedures[name] = entry;
+                    seen.Add(name);
+                }
+
+                if (reader.IsDBNull(2)) continue;
+
+                var paramName = reader.GetString(2).Trim();
+                var paramType = reader.GetInt32(3);
+                var fieldType = reader.GetInt32(4);
+                var length = reader.GetInt32OrDefault(5);
+                var subType = reader.GetInt32OrDefault(6);
+                var precision = reader.GetInt32OrDefault(7);
+                var scale = reader.GetInt32OrDefault(8);
+
+                var declaration = $"{paramName} {GetFirebirdType(fieldType, length, subType, precision, scale)}";
+
+                if (paramType == 0)
+                    entry.Inputs.Add(declaration);
+                else
+                    entry.Outputs.Add(declaration);
             }
         }
 
         if (procedures.Count == 0)
             return string.Empty;
 
-        var parameters = GetAllProcedureParameters(connection);
-
         sql.AppendLine("SET TERM ^ ;");
         sql.AppendLine();
 
-        foreach (var (name, source) in procedures)
+        foreach (var name in seen)
         {
-            var (inputs, outputs) = parameters.TryGetValue(name, out var found)
-                ? found
-                : (new List<string>(), new List<string>());
+            var (source, inputs, outputs) = procedures[name];
 
             sql.Append($"CREATE OR ALTER PROCEDURE {name} ");
 
@@ -219,43 +230,6 @@ public static class FbConnectionExtensions
         sql.AppendLine("SET TERM ; ^");
 
         return sql.ToString();
-    }
-
-    /// <summary>
-    /// Pobiera parametry wejściowe i wyjściowe wszystkich procedur jednym zapytaniem (JOIN),
-    /// zamiast osobnego zapytania per procedura, i grupuje je po nazwie procedury.
-    /// </summary>
-    private static Dictionary<string, (List<string> Inputs, List<string> Outputs)> GetAllProcedureParameters(
-        FbConnection connection)
-    {
-        var result = new Dictionary<string, (List<string> Inputs, List<string> Outputs)>();
-
-        using var command = new FbCommand(ProcedureParameters, connection);
-        using var reader = command.ExecuteReader();
-
-        while (reader.Read())
-        {
-            var procedureName = reader.GetString(0).Trim(); // RDB$PROCEDURE_NAME
-            var paramName = reader.GetString(1).Trim(); // RDB$PARAMETER_NAME
-            var paramType = reader.GetInt32(2); // RDB$PARAMETER_TYPE (0 = input, 1 = output)
-            var fieldType = reader.GetInt32(3); // RDB$FIELD_TYPE
-            var length = reader.GetInt32OrDefault(4); // RDB$FIELD_LENGTH
-            var subType = reader.GetInt32OrDefault(5); // RDB$FIELD_SUB_TYPE
-            var precision = reader.GetInt32OrDefault(6); // RDB$FIELD_PRECISION
-            var scale = reader.GetInt32OrDefault(7); // RDB$FIELD_SCALE
-
-            var declaration = $"{paramName} {GetFirebirdType(fieldType, length, subType, precision, scale)}";
-
-            if (!result.TryGetValue(procedureName, out var lists))
-                result[procedureName] = lists = ([], []);
-
-            if (paramType == 0)
-                lists.Inputs.Add(declaration);
-            else
-                lists.Outputs.Add(declaration);
-        }
-
-        return result;
     }
 
     private static void AppendTableScript(StringBuilder sql, string tableName, List<string> columns)

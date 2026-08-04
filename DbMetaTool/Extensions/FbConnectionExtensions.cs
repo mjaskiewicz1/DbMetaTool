@@ -1,5 +1,6 @@
 using System.Text;
 using FirebirdSql.Data.FirebirdClient;
+using FirebirdSql.Data.Isql;
 
 namespace DbMetaTool.Extensions;
 
@@ -165,7 +166,6 @@ public static class FbConnectionExtensions
     {
         var sql = new StringBuilder();
         var procedures = new Dictionary<string, (string? Source, List<string> Inputs, List<string> Outputs)>();
-        var seen = new List<string>();
 
         using (var command = new FbCommand(Procedures, connection))
         using (var reader = command.ExecuteReader())
@@ -179,7 +179,6 @@ public static class FbConnectionExtensions
                 {
                     entry = (source, [], []);
                     procedures[name] = entry;
-                    seen.Add(name);
                 }
 
                 if (reader.IsDBNull(2)) continue;
@@ -207,7 +206,7 @@ public static class FbConnectionExtensions
         sql.AppendLine("SET TERM ^ ;");
         sql.AppendLine();
 
-        foreach (var name in seen)
+        foreach (var name in procedures.Keys)
         {
             var (source, inputs, outputs) = procedures[name];
 
@@ -268,6 +267,68 @@ public static class FbConnectionExtensions
             261 => "BLOB",
             _ => throw new NotSupportedException($"Niewspierany typ Firebird {fieldType}")
         };
-}
 
-#endregion
+    #endregion
+
+    #region Update
+
+    private const string ExistingDomains =
+        "SELECT RDB$FIELD_NAME FROM RDB$FIELDS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$FIELD_NAME NOT STARTING WITH 'RDB$'";
+
+    private const string ExistingTables =
+        "SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL";
+
+    public static void UpdateDomains(this FbConnection connection, string filePath)
+    {
+        var existing = LoadNames(connection, ExistingDomains);
+        ExecuteMissing(connection, filePath, existing, "CREATE DOMAIN");
+    }
+
+    public static void UpdateTables(this FbConnection connection, string filePath)
+    {
+        var existing = LoadNames(connection, ExistingTables);
+        ExecuteMissing(connection, filePath, existing, "CREATE TABLE");
+    }
+
+    public static void UpdateProcedures(this FbConnection connection, string filePath)
+    {
+        var script = new FbScript(File.ReadAllText(filePath));
+        script.Parse();
+        var batch = new FbBatchExecution(connection);
+        batch.AppendSqlStatements(script);
+        batch.Execute();
+    }
+
+    private static HashSet<string> LoadNames(FbConnection connection, string query)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = new FbCommand(query, connection);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            names.Add(reader.GetString(0).Trim());
+        return names;
+    }
+
+    private static void ExecuteMissing(FbConnection connection, string filePath, HashSet<string> existing, string keyword)
+    {
+        var script = new FbScript(File.ReadAllText(filePath));
+        script.Parse();
+
+        foreach (var statement in script.Results)
+        {
+            var parts = statement.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) continue;
+
+            var stmtKeyword = string.Join(" ", parts[..2]);
+            if (!stmtKeyword.Equals(keyword, StringComparison.OrdinalIgnoreCase)) continue;
+
+            var name = parts[2].Trim();
+            if (existing.Contains(name)) continue;
+
+            using var cmd = new FbCommand(statement.Text, connection);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    #endregion
+}

@@ -193,11 +193,23 @@ namespace DbMetaTool
         /// </summary>
         public static void UpdateDatabase(string connectionString, string scriptsDirectory)
         {
-            // TODO:
-            // 1) Połącz się z bazą danych przy użyciu connectionString.
-            // 2) Wykonaj skrypty z katalogu scriptsDirectory (tylko obsługiwane elementy).
-            // 3) Zadbaj o poprawną kolejność i bezpieczeństwo zmian.
-            throw new NotImplementedException();
+            var allFiles = Directory.GetFiles(scriptsDirectory, "*.sql");
+            var domainsFile = allFiles.FirstOrDefault(f => f.Contains("domains", StringComparison.OrdinalIgnoreCase));
+            var tablesFile = allFiles.FirstOrDefault(f => f.Contains("tables", StringComparison.OrdinalIgnoreCase));
+            var proceduresFile = allFiles.FirstOrDefault(f => f.Contains("procedures", StringComparison.OrdinalIgnoreCase));
+
+            using var connection = new FbConnection(connectionString);
+            connection.Open();
+
+            if (domainsFile != null)
+                connection.UpdateDomains(domainsFile);
+
+            if (tablesFile != null)
+                connection.UpdateTables(tablesFile);
+
+            if (proceduresFile != null)
+                connection.UpdateProcedures(proceduresFile);
+            connection.Close();
         }
     }
 }

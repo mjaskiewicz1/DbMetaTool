@@ -21,7 +21,7 @@ namespace DbMetaTool
                 // return 1;
                 var connStr = new FbConnectionStringBuilder
                 {
-                    Database = @"C:\db\fb5\database.fdb",
+                    Database = @"C:\db\fb5v2\database.fdb",
                     UserID = "SYSDBA",
                     Password = "password",
                     ServerType = FbServerType.Default,
@@ -31,7 +31,7 @@ namespace DbMetaTool
                 }.ToString();
 
                 // BuildDatabase(@"C:\db\fb5", @"C:\out");
-                ExportScripts(connStr, @"C:\out");
+                UpdateDatabase(connStr, @"C:\out");
                 return 1;
             }
 
@@ -201,15 +201,16 @@ namespace DbMetaTool
             using var connection = new FbConnection(connectionString);
             connection.Open();
 
-            if (domainsFile != null)
+            if (domainsFile  is not null)
                 connection.UpdateDomains(domainsFile);
 
-            if (tablesFile != null)
+            if (tablesFile is not null)
                 connection.UpdateTables(tablesFile);
 
-            if (proceduresFile != null)
+            if (proceduresFile is not null)
                 connection.UpdateProcedures(proceduresFile);
             connection.Close();
+            Console.WriteLine("Aktualizacja bazy danych zakończona pomyślnie.");
         }
     }
 }

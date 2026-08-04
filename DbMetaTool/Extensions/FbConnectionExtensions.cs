@@ -66,7 +66,11 @@ public static class FbConnectionExtensions
         FROM RDB$PROCEDURE_PARAMETERS pp
         JOIN RDB$FIELDS f
             ON f.RDB$FIELD_NAME = pp.RDB$FIELD_SOURCE
-        ORDER BY pp.RDB$PROCEDURE_NAME, pp.RDB$PARAMETER_TYPE, pp.RDB$PARAMETER_NUMBER
+        WHERE pp.RDB$SYSTEM_FLAG = 0
+        ORDER BY
+            pp.RDB$PROCEDURE_NAME,
+            pp.RDB$PARAMETER_TYPE,
+            pp.RDB$PARAMETER_NUMBER
         """;
 
     #region Read

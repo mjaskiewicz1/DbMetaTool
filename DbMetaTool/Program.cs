@@ -207,6 +207,9 @@ namespace DbMetaTool
             if (tablesFile is not null)
                 connection.UpdateTables(tablesFile);
 
+            if (tablesFile is not null)
+                connection.UpdateColumns(tablesFile);
+
             if (proceduresFile is not null)
                 connection.UpdateProcedures(proceduresFile);
             connection.Close();

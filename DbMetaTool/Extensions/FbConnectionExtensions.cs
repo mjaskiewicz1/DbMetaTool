@@ -299,6 +299,84 @@ public static class FbConnectionExtensions
         batch.Execute();
     }
 
+    private const string ExistingColumns =
+        """
+        SELECT rf.RDB$RELATION_NAME, rf.RDB$FIELD_NAME
+        FROM RDB$RELATION_FIELDS rf
+        JOIN RDB$RELATIONS r ON r.RDB$RELATION_NAME = rf.RDB$RELATION_NAME
+        WHERE r.RDB$SYSTEM_FLAG = 0 AND r.RDB$VIEW_BLR IS NULL
+        """;
+
+    public static void UpdateColumns(this FbConnection connection, string filePath)
+    {
+        var existingColumns = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = new FbCommand(ExistingColumns, connection))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var table = reader.GetString(0).Trim();
+                var column = reader.GetString(1).Trim();
+                if (!existingColumns.TryGetValue(table, out var cols))
+                    existingColumns[table] = cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                cols.Add(column);
+            }
+        }
+
+        var script = new FbScript(File.ReadAllText(filePath));
+        script.Parse();
+
+        foreach (var statement in script.Results)
+        {
+            var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) continue;
+            if (!string.Join(" ", parts[..2]).Equals("CREATE TABLE", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var tableName = parts[2].Trim();
+            if (!existingColumns.TryGetValue(tableName, out var existingCols)) continue;
+
+            var text = statement.Text;
+            var start = text.IndexOf('(');
+            var end = text.LastIndexOf(')');
+            if (start == -1 || end == -1) continue;
+
+            foreach (var colDef in SplitColumns(text[(start + 1)..end]))
+            {
+                var colName = colDef.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)[0];
+                if (existingCols.Contains(colName)) continue;
+
+                using var cmd = new FbCommand($"ALTER TABLE {tableName} ADD {colDef}", connection);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private static List<string> SplitColumns(string columnSection)
+    {
+        var result = new List<string>();
+        var depth = 0;
+        var current = new StringBuilder();
+
+        foreach (var c in columnSection)
+        {
+            if (c == '(') depth++;
+            else if (c == ')') depth--;
+
+            if (c == ',' && depth == 0)
+            {
+                var col = current.ToString().Trim();
+                if (col.Length > 0) result.Add(col);
+                current.Clear();
+            }
+            else
+                current.Append(c);
+        }
+
+        var last = current.ToString().Trim();
+        if (last.Length > 0) result.Add(last);
+        return result;
+    }
+
     private static HashSet<string> LoadNames(FbConnection connection, string query)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

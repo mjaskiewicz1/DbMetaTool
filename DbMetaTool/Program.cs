@@ -30,7 +30,7 @@ namespace DbMetaTool
                     Charset = "UTF8"
                 }.ToString();
 
-                // BuildDatabase(@"C:\db\fb5", @"C:\out");
+                // BuildDatabase(@"C:\db\fb5v2", @"C:\out");
                 UpdateDatabase(connStr, @"C:\out");
                 return 1;
             }
@@ -225,7 +225,9 @@ namespace DbMetaTool
                 Console.ResetColor();
 
                 connection.Close();
-                connection.Restore(backupPath);
+                // ta metoda nie działa poprawnie - trzeba ją przepisać
+                
+                // connection.Restore(backupPath);
                 throw;
             }
 

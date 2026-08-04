@@ -171,7 +171,6 @@ namespace DbMetaTool
 
             var exportProceduresScript = connection.ExportProcedures();
             File.WriteAllText(Path.Combine(outputDirectory, "procedures.sql"), exportProceduresScript);
-            connection.Close();
         }
 
         /// <summary>
@@ -212,12 +211,10 @@ namespace DbMetaTool
 
                 connection.Close();
                 // ta metoda nie działa poprawnie - trzeba ją przepisać
-                
                 // connection.Restore(backupPath);
                 throw;
             }
 
-            connection.Close();
             Console.WriteLine("Aktualizacja bazy danych zakończona pomyślnie.");
         }
     }

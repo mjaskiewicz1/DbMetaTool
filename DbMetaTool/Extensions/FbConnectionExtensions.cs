@@ -305,7 +305,8 @@ public static class FbConnectionExtensions
         {
             ConnectionString = connection.ConnectionString,
             BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
-            Verbose = false
+            Verbose = false,
+            Options = FbRestoreFlags.Replace
         };
         restore.Execute();
     }

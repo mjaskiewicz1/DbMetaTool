@@ -7,6 +7,8 @@ namespace DbMetaTool.Extensions;
 
 public static class FbConnectionExtensions
 {
+    #region Queries
+
     private const string Domains =
         """
         SELECT
@@ -65,6 +67,22 @@ public static class FbConnectionExtensions
         WHERE p.RDB$SYSTEM_FLAG = 0
         ORDER BY p.RDB$PROCEDURE_NAME, pp.RDB$PARAMETER_TYPE, pp.RDB$PARAMETER_NUMBER
         """;
+
+    private const string ExistingDomains =
+        "SELECT RDB$FIELD_NAME FROM RDB$FIELDS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$FIELD_NAME NOT STARTING WITH 'RDB$'";
+
+    private const string ExistingTables =
+        "SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL";
+
+    private const string ExistingColumns =
+        """
+        SELECT rf.RDB$RELATION_NAME, rf.RDB$FIELD_NAME
+        FROM RDB$RELATION_FIELDS rf
+        JOIN RDB$RELATIONS r ON r.RDB$RELATION_NAME = rf.RDB$RELATION_NAME
+        WHERE r.RDB$SYSTEM_FLAG = 0 AND r.RDB$VIEW_BLR IS NULL
+        """;
+
+    #endregion
 
     #region Read
 
@@ -162,7 +180,6 @@ public static class FbConnectionExtensions
         return sql.ToString();
     }
 
-
     public static string ExportProcedures(this FbConnection connection)
     {
         var sql = new StringBuilder();
@@ -232,6 +249,113 @@ public static class FbConnectionExtensions
         return sql.ToString();
     }
 
+    #endregion
+
+    #region Update
+
+    public static string Backup(this FbConnection connection, string backupDirectory)
+    {
+        Directory.CreateDirectory(backupDirectory);
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var backupPath = Path.Combine(backupDirectory, $"database_{timestamp}.fbk");
+
+        var backup = new FbBackup
+        {
+            ConnectionString = connection.ConnectionString,
+            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
+            Verbose = false
+        };
+        backup.Execute();
+        return backupPath;
+    }
+
+    public static void Restore(this FbConnection connection, string backupPath)
+    {
+        FbConnection.ClearAllPools();
+
+        var restore = new FbRestore
+        {
+            ConnectionString = connection.ConnectionString,
+            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
+            Verbose = false,
+            Options = FbRestoreFlags.Replace
+        };
+        restore.Execute();
+    }
+
+    public static void UpdateDomains(this FbConnection connection, string filePath)
+    {
+        var existing = LoadNames(connection, ExistingDomains);
+        ExecuteMissing(connection, filePath, existing, "CREATE DOMAIN");
+    }
+
+    public static void UpdateTables(this FbConnection connection, string filePath)
+    {
+        var existing = LoadNames(connection, ExistingTables);
+        ExecuteMissing(connection, filePath, existing, "CREATE TABLE");
+    }
+
+    public static void UpdateColumns(this FbConnection connection, string filePath)
+    {
+        var existingColumns = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        using (var cmd = new FbCommand(ExistingColumns, connection))
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                var table = reader.GetString(0).Trim();
+                var column = reader.GetString(1).Trim();
+                if (!existingColumns.TryGetValue(table, out var cols))
+                {
+                    cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    existingColumns[table] = cols;
+                }
+
+                cols.Add(column);
+            }
+        }
+
+        var script = new FbScript(File.ReadAllText(filePath));
+        script.Parse();
+
+        foreach (var statement in script.Results)
+        {
+            var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3) continue;
+            if (!string.Join(" ", parts[..2]).Equals("CREATE TABLE", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var tableName = parts[2].Trim();
+            if (!existingColumns.TryGetValue(tableName, out var existingCols)) continue;
+
+            var text = statement.Text;
+            var start = text.IndexOf('(');
+            var end = text.LastIndexOf(')');
+            if (start == -1 || end == -1) continue;
+
+            foreach (var colDef in SplitColumns(text[(start + 1)..end]))
+            {
+                var colName = colDef.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)[0];
+                if (existingCols.Contains(colName)) continue;
+
+                using var cmd = new FbCommand($"ALTER TABLE {tableName} ADD {colDef}", connection);
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    public static void UpdateProcedures(this FbConnection connection, string filePath)
+    {
+        var script = new FbScript(File.ReadAllText(filePath));
+        script.Parse();
+        var batch = new FbBatchExecution(connection);
+        batch.AppendSqlStatements(script);
+        batch.Execute();
+    }
+
+    #endregion
+
+    #region Helpers
+
     private static void AppendTableScript(StringBuilder sql, string tableName, List<string> columns)
     {
         sql.AppendLine($"CREATE TABLE {tableName}");
@@ -269,121 +393,34 @@ public static class FbConnectionExtensions
             _ => throw new NotSupportedException($"Niewspierany typ Firebird {fieldType}")
         };
 
-    #endregion
-
-    #region Update
-
-    private const string ExistingDomains =
-        "SELECT RDB$FIELD_NAME FROM RDB$FIELDS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$FIELD_NAME NOT STARTING WITH 'RDB$'";
-
-    private const string ExistingTables =
-        "SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL";
-
-    public static string Backup(this FbConnection connection, string backupDirectory)
+    private static HashSet<string> LoadNames(FbConnection connection, string query)
     {
-        Directory.CreateDirectory(backupDirectory);
-        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var backupPath = Path.Combine(backupDirectory, $"database_{timestamp}.fbk");
-
-        var backup = new FbBackup
-        {
-            ConnectionString = connection.ConnectionString,
-            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
-            Verbose = false
-        };
-        backup.Execute();
-        return backupPath;
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = new FbCommand(query, connection);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+            names.Add(reader.GetString(0).Trim());
+        return names;
     }
 
-    public static void Restore(this FbConnection connection, string backupPath)
+    private static void ExecuteMissing(FbConnection connection, string filePath, HashSet<string> existing, string keyword)
     {
-        FbConnection.ClearAllPools();
-        
-        var restore = new FbRestore
-        {
-            ConnectionString = connection.ConnectionString,
-            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
-            Verbose = false,
-            Options = FbRestoreFlags.Replace
-        };
-        restore.Execute();
-    }
-
-    public static void UpdateDomains(this FbConnection connection, string filePath)
-    {
-        var existing = LoadNames(connection, ExistingDomains);
-        ExecuteMissing(connection, filePath, existing, "CREATE DOMAIN");
-    }
-
-    public static void UpdateTables(this FbConnection connection, string filePath)
-    {
-        var existing = LoadNames(connection, ExistingTables);
-        ExecuteMissing(connection, filePath, existing, "CREATE TABLE");
-    }
-
-    public static void UpdateProcedures(this FbConnection connection, string filePath)
-    {
-        var script = new FbScript(File.ReadAllText(filePath));
-        script.Parse();
-        var batch = new FbBatchExecution(connection);
-        batch.AppendSqlStatements(script);
-        batch.Execute();
-    }
-
-    private const string ExistingColumns =
-        """
-        SELECT rf.RDB$RELATION_NAME, rf.RDB$FIELD_NAME
-        FROM RDB$RELATION_FIELDS rf
-        JOIN RDB$RELATIONS r ON r.RDB$RELATION_NAME = rf.RDB$RELATION_NAME
-        WHERE r.RDB$SYSTEM_FLAG = 0 AND r.RDB$VIEW_BLR IS NULL
-        """;
-
-    public static void UpdateColumns(this FbConnection connection, string filePath)
-    {
-        var existingColumns = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        using (var cmd = new FbCommand(ExistingColumns, connection))
-        using (var reader = cmd.ExecuteReader())
-        {
-            while (reader.Read())
-            {
-                var table = reader.GetString(0).Trim();
-                var column = reader.GetString(1).Trim();
-                if (!existingColumns.TryGetValue(table, out var cols))
-                {
-                    cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    existingColumns[table] = cols;
-                }
-
-                cols.Add(column);
-            }
-        }
-
         var script = new FbScript(File.ReadAllText(filePath));
         script.Parse();
 
         foreach (var statement in script.Results)
         {
             var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) continue; 
-            // Sprawdzamy, czy pierwsze dwa słowa komendy to dokładnie "CREATE TABLE".
-            if (!string.Join(" ", parts[..2]).Equals("CREATE TABLE", StringComparison.OrdinalIgnoreCase)) continue;
+            if (parts.Length < 3) continue;
 
-            var tableName = parts[2].Trim();
-            if (!existingColumns.TryGetValue(tableName, out var existingCols)) continue;
+            var stmtKeyword = string.Join(" ", parts[..2]);
+            if (!stmtKeyword.Equals(keyword, StringComparison.OrdinalIgnoreCase)) continue;
 
-            var text = statement.Text;
-            var start = text.IndexOf('(');
-            var end = text.LastIndexOf(')');
-            if (start == -1 || end == -1) continue;
+            var name = parts[2].Trim();
+            if (existing.Contains(name)) continue;
 
-            foreach (var colDef in SplitColumns(text[(start + 1)..end]))
-            {
-                var colName = colDef.Split([' ', '\t', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries)[0];
-                if (existingCols.Contains(colName)) continue;
-
-                using var cmd = new FbCommand($"ALTER TABLE {tableName} ADD {colDef}", connection);
-                cmd.ExecuteNonQuery();
-            }
+            using var cmd = new FbCommand(statement.Text, connection);
+            cmd.ExecuteNonQuery();
         }
     }
 
@@ -418,38 +455,6 @@ public static class FbConnectionExtensions
         var last = current.ToString().Trim();
         if (last.Length > 0) result.Add(last);
         return result;
-    }
-
-    private static HashSet<string> LoadNames(FbConnection connection, string query)
-    {
-        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        using var cmd = new FbCommand(query, connection);
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read())
-            names.Add(reader.GetString(0).Trim());
-        return names;
-    }
-
-    private static void ExecuteMissing(FbConnection connection, string filePath, HashSet<string> existing,
-        string keyword)
-    {
-        var script = new FbScript(File.ReadAllText(filePath));
-        script.Parse();
-
-        foreach (var statement in script.Results)
-        {
-            var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) continue;
-
-            var stmtKeyword = string.Join(" ", parts[..2]);
-            if (!stmtKeyword.Equals(keyword, StringComparison.OrdinalIgnoreCase)) continue;
-
-            var name = parts[2].Trim();
-            if (existing.Contains(name)) continue;
-
-            using var cmd = new FbCommand(statement.Text, connection);
-            cmd.ExecuteNonQuery();
-        }
     }
 
     #endregion

@@ -172,7 +172,6 @@ namespace DbMetaTool
             var exportProceduresScript = connection.ExportProcedures();
             File.WriteAllText(Path.Combine(outputDirectory, "procedures.sql"), exportProceduresScript);
             connection.Close();
-            Console.WriteLine("Eksport skryptów zakończony pomyślnie.");
         }
 
         /// <summary>

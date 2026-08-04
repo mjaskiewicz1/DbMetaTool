@@ -10,28 +10,14 @@ namespace DbMetaTool
         // DbMetaTool build-db --db-dir "C:\db\fb5" --scripts-dir "C:\scripts"
         // DbMetaTool export-scripts --connection-string "..." --output-dir "C:\out"
         // DbMetaTool update-db --connection-string "..." --scripts-dir "C:\scripts"
-        public static int Main(string[] args)
+      public static int Main(string[] args)
         {
             if (args.Length == 0)
             {
-                // Console.WriteLine("Użycie:");
-                // Console.WriteLine("  build-db --db-dir <ścieżka> --scripts-dir <ścieżka>");
-                // Console.WriteLine("  export-scripts --connection-string <connStr> --output-dir <ścieżka>");
-                // Console.WriteLine("  update-db --connection-string <connStr> --scripts-dir <ścieżka>");
-                // return 1;
-                var connStr = new FbConnectionStringBuilder
-                {
-                    Database = @"C:\db\fb5v2\database.fdb",
-                    UserID = "SYSDBA",
-                    Password = "password",
-                    ServerType = FbServerType.Default,
-                    Port = 3050,
-                    DataSource = "localhost",
-                    Charset = "UTF8"
-                }.ToString();
-
-                // BuildDatabase(@"C:\db\fb5v2", @"C:\out");
-                UpdateDatabase(connStr, @"C:\out");
+                Console.WriteLine("Użycie:");
+                Console.WriteLine("  build-db --db-dir <ścieżka> --scripts-dir <ścieżka>");
+                Console.WriteLine("  export-scripts --connection-string <connStr> --output-dir <ścieżka>");
+                Console.WriteLine("  update-db --connection-string <connStr> --scripts-dir <ścieżka>");
                 return 1;
             }
 
@@ -42,34 +28,34 @@ namespace DbMetaTool
                 switch (command)
                 {
                     case "build-db":
-                    {
-                        string dbDir = GetArgValue(args, "--db-dir");
-                        string scriptsDir = GetArgValue(args, "--scripts-dir");
+                        {
+                            string dbDir = GetArgValue(args, "--db-dir");
+                            string scriptsDir = GetArgValue(args, "--scripts-dir");
 
-                        BuildDatabase(dbDir, scriptsDir);
-                        Console.WriteLine("Baza danych została zbudowana pomyślnie.");
-                        return 0;
-                    }
+                            BuildDatabase(dbDir, scriptsDir);
+                            Console.WriteLine("Baza danych została zbudowana pomyślnie.");
+                            return 0;
+                        }
 
                     case "export-scripts":
-                    {
-                        string connStr = GetArgValue(args, "--connection-string");
-                        string outputDir = GetArgValue(args, "--output-dir");
+                        {
+                            string connStr = GetArgValue(args, "--connection-string");
+                            string outputDir = GetArgValue(args, "--output-dir");
 
-                        ExportScripts(connStr, outputDir);
-                        Console.WriteLine("Skrypty zostały wyeksportowane pomyślnie.");
-                        return 0;
-                    }
+                            ExportScripts(connStr, outputDir);
+                            Console.WriteLine("Skrypty zostały wyeksportowane pomyślnie.");
+                            return 0;
+                        }
 
                     case "update-db":
-                    {
-                        string connStr = GetArgValue(args, "--connection-string");
-                        string scriptsDir = GetArgValue(args, "--scripts-dir");
+                        {
+                            string connStr = GetArgValue(args, "--connection-string");
+                            string scriptsDir = GetArgValue(args, "--scripts-dir");
 
-                        UpdateDatabase(connStr, scriptsDir);
-                        Console.WriteLine("Baza danych została zaktualizowana pomyślnie.");
-                        return 0;
-                    }
+                            UpdateDatabase(connStr, scriptsDir);
+                            Console.WriteLine("Baza danych została zaktualizowana pomyślnie.");
+                            return 0;
+                        }
 
                     default:
                         Console.WriteLine($"Nieznane polecenie: {command}");
@@ -82,6 +68,7 @@ namespace DbMetaTool
                 return -1;
             }
         }
+
 
         private static string GetArgValue(string[] args, string name)
         {

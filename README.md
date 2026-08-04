@@ -51,3 +51,4 @@ Przed aktualizacją tworzony jest backup w podkatalogu `backups\` obok pliku baz
 - **Częściowa obsługa constraints** — domeny obsługują `NOT NULL` oraz `CHECK`, natomiast `update-db` nie obsługuje dodawania ani modyfikacji kluczy obcych i unikalnych indeksów w tabelach.
 - **Aktualizacja kolumn** — przed dodaniem kolumny sprawdzane jest czy tabela już istnieje w bazie; jeśli tak, dodawane są tylko brakujące kolumny.
 - DDL w Firebird nie jest transakcyjne — rollback nie cofa zmian schematu, jedynym zabezpieczeniem jest backup.
+- **Nieobsługiwane typy kolumn** — mogą wystąpić błędy związane z typami kolumn, ponieważ nie wszystkie typy Firebird są obsługiwane przez `GetFirebirdType`. W razie błędu baza zostanie przywrócona z backupu.

@@ -214,8 +214,6 @@ namespace DbMetaTool
                 // connection.Restore(backupPath);
                 throw;
             }
-
-            Console.WriteLine("Aktualizacja bazy danych zakończona pomyślnie.");
         }
     }
 }

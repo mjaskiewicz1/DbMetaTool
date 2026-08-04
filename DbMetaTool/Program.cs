@@ -201,17 +201,34 @@ namespace DbMetaTool
             using var connection = new FbConnection(connectionString);
             connection.Open();
 
-            if (domainsFile  is not null)
-                connection.UpdateDomains(domainsFile);
+            var backupDir = Path.Combine(Path.GetDirectoryName(new FbConnectionStringBuilder(connectionString).Database)!, "backups");
+            var backupPath = connection.Backup(backupDir);
 
-            if (tablesFile is not null)
-                connection.UpdateTables(tablesFile);
+            try
+            {
+                if (domainsFile is not null)
+                    connection.UpdateDomains(domainsFile);
 
-            if (tablesFile is not null)
-                connection.UpdateColumns(tablesFile);
+                if (tablesFile is not null)
+                    connection.UpdateTables(tablesFile);
 
-            if (proceduresFile is not null)
-                connection.UpdateProcedures(proceduresFile);
+                if (tablesFile is not null)
+                    connection.UpdateColumns(tablesFile);
+
+                if (proceduresFile is not null)
+                    connection.UpdateProcedures(proceduresFile);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"BŁĄD: {ex.Message}. Przywracanie backupu...");
+                Console.ResetColor();
+
+                connection.Close();
+                connection.Restore(backupPath);
+                throw;
+            }
+
             connection.Close();
             Console.WriteLine("Aktualizacja bazy danych zakończona pomyślnie.");
         }

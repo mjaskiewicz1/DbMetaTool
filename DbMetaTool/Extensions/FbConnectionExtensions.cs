@@ -1,6 +1,7 @@
 using System.Text;
 using FirebirdSql.Data.FirebirdClient;
 using FirebirdSql.Data.Isql;
+using FirebirdSql.Data.Services;
 
 namespace DbMetaTool.Extensions;
 
@@ -278,6 +279,37 @@ public static class FbConnectionExtensions
     private const string ExistingTables =
         "SELECT RDB$RELATION_NAME FROM RDB$RELATIONS WHERE RDB$SYSTEM_FLAG = 0 AND RDB$VIEW_BLR IS NULL";
 
+    public static string Backup(this FbConnection connection, string backupDirectory)
+    {
+        Directory.CreateDirectory(backupDirectory);
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var backupPath = Path.Combine(backupDirectory, $"database_{timestamp}.fbk");
+
+        var backup = new FbBackup
+        {
+            ConnectionString = connection.ConnectionString,
+            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
+            Verbose = false
+        };
+        backup.Execute();
+        return backupPath;
+    }
+
+    public static void Restore(this FbConnection connection, string backupPath)
+    {
+        FbConnection.ClearAllPools();
+
+        var connBuilder = new FbConnectionStringBuilder(connection.ConnectionString);
+
+        var restore = new FbRestore
+        {
+            ConnectionString = connection.ConnectionString,
+            BackupFiles = { new FbBackupFile(backupPath, int.MaxValue) },
+            Verbose = false
+        };
+        restore.Execute();
+    }
+
     public static void UpdateDomains(this FbConnection connection, string filePath)
     {
         var existing = LoadNames(connection, ExistingDomains);
@@ -318,7 +350,11 @@ public static class FbConnectionExtensions
                 var table = reader.GetString(0).Trim();
                 var column = reader.GetString(1).Trim();
                 if (!existingColumns.TryGetValue(table, out var cols))
-                    existingColumns[table] = cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                {
+                    cols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    existingColumns[table] = cols;
+                }
+
                 cols.Add(column);
             }
         }
@@ -329,7 +365,8 @@ public static class FbConnectionExtensions
         foreach (var statement in script.Results)
         {
             var parts = statement.Text.Split([' ', '\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) continue;
+            if (parts.Length < 3) continue; 
+            // Sprawdzamy, czy pierwsze dwa słowa komendy to dokładnie "CREATE TABLE".
             if (!string.Join(" ", parts[..2]).Equals("CREATE TABLE", StringComparison.OrdinalIgnoreCase)) continue;
 
             var tableName = parts[2].Trim();
@@ -359,8 +396,15 @@ public static class FbConnectionExtensions
 
         foreach (var c in columnSection)
         {
-            if (c == '(') depth++;
-            else if (c == ')') depth--;
+            switch (c)
+            {
+                case '(':
+                    depth++;
+                    break;
+                case ')':
+                    depth--;
+                    break;
+            }
 
             if (c == ',' && depth == 0)
             {
@@ -387,7 +431,8 @@ public static class FbConnectionExtensions
         return names;
     }
 
-    private static void ExecuteMissing(FbConnection connection, string filePath, HashSet<string> existing, string keyword)
+    private static void ExecuteMissing(FbConnection connection, string filePath, HashSet<string> existing,
+        string keyword)
     {
         var script = new FbScript(File.ReadAllText(filePath));
         script.Parse();
